@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: tailor
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tailor-db
+          property: connectionString
+      - key: PGSSL
+        value: "off"
+      - key: MCP_KEY
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+databases:
+  - name: tailor-db
+    plan: free
