@@ -201,16 +201,25 @@ const statusPill = s => {
 async function renderJobs(page) {
   window.onbeforeunload = null;
   const jobs = await api('/jobs');
+  const snippet = t => esc((t || '').replace(/\s+/g, ' ').slice(0, 140)) + ((t || '').length > 140 ? '…' : '');
   page.innerHTML = `
     <div class="page-head"><div><h1>Jobs</h1><p>One tailored, one-page resume per job description.</p></div><a class="btn primary" href="#/jobs/new">+ Add Job Description</a></div>
-    ${jobs.length ? `<div class="jobs">${jobs.map(j => `
-      <a class="job" href="#/job/${j.id}">
-        <div class="num">#${j.number}</div>
-        <div><h3>${esc(j.title)}</h3><div class="sub">${esc(j.company || '—')} · updated ${ago(j.updated_at)}</div></div>
-        ${statusPill(j.status)}
-        <span class="muted">→</span>
-      </a>`).join('')}</div>`
+    ${jobs.length ? `<div class="jobcards">${jobs.map(j => `
+      <a class="jobcard" href="#/job/${j.id}">
+        <div class="jc-top"><span class="num">#${j.number}</span>${statusPill(j.status)}<button class="jc-del" data-del="${j.id}" title="Delete job" aria-label="Delete job">🗑</button></div>
+        <h3>${esc(j.title)}</h3>
+        <div class="sub">${esc(j.company || '—')}</div>
+        <p class="jc-jd">${snippet(j.jd_text) || '<span class="muted">No JD text yet</span>'}</p>
+        <div class="jc-foot"><span>${j.resume ? '📄 Resume ready' : 'No resume yet'}</span><span>${ago(j.updated_at)}</span></div>
+      </a>`).join('')}
+      <a class="jobcard add" href="#/jobs/new"><span>+</span>Add Job Description</a></div>`
       : `<div class="empty-big"><h3>No jobs yet</h3><p>Add a job description and your Claude will tailor a one-page resume to it.</p><a class="btn primary" href="#/jobs/new">+ Add Job Description</a></div>`}`;
+  $$('[data-del]', page).forEach(b => b.onclick = async e => {
+    e.preventDefault(); e.stopPropagation();
+    const j = jobs.find(x => x.id === b.dataset.del);
+    if (!confirm(`Delete job #${j.number} (${j.title})? Its resume will be deleted too.`)) return;
+    try { await api('/jobs/' + j.id, { method: 'DELETE' }); toast(`Job #${j.number} deleted`); renderJobs(page); } catch (err) { toast(err.message); }
+  });
 }
 
 async function renderNewJob(page) {
@@ -314,6 +323,7 @@ async function renderWorkspace(id) {
         <button class="btn sm" id="bedit">✎ Edit</button>
         <button class="btn sm" id="bexp">⤢ Expand</button>
         <button class="btn sm primary" id="bpdf">⬇ Download PDF</button>
+        <button class="btn sm danger" id="bdel" title="Delete job">🗑</button>
       </div>
       <div class="stage" id="stage"></div>
     </section>
@@ -420,6 +430,10 @@ async function renderWorkspace(id) {
   const saveManual = async () => { try { await api(`/jobs/${job.id}/resume`, { method: 'PUT', body: cleanResume(job.resume) }); const j = await api('/jobs/' + job.id); job.updated_at = j.updated_at; lastSig = sig(j); toast('Saved'); } catch (e) { toast(e.message); } };
 
   $('#bedit').onclick = async () => { if (editing) { clearTimeout(saveT); job.resume = cleanResume(job.resume); await saveManual(); } editing = !editing; drawLeft(); };
+  $('#bdel').onclick = async () => {
+    if (!confirm(`Delete job #${job.number} (${job.title})? Its resume will be deleted too.`)) return;
+    try { await api('/jobs/' + job.id, { method: 'DELETE' }); clearInterval(pollTimer); toast(`Job #${job.number} deleted`); location.hash = '#/jobs'; } catch (e) { toast(e.message); }
+  };
   $('#bexp').onclick = () => { document.body.classList.toggle('expanded'); $('#bexp').textContent = document.body.classList.contains('expanded') ? '⤡ Collapse' : '⤢ Expand'; requestAnimationFrame(fitScale); };
   $('#bpdf').onclick = () => {
     const over = $('#fit').textContent.includes('Over');
