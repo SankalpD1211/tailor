@@ -5,7 +5,7 @@ Tailor keeps your master profile and saved job descriptions. Your own Claude, co
 **There is no AI inside Tailor.** It has no OpenAI or Anthropic keys and makes no model calls. The customer's own Claude plan does all the thinking.
 
 ## Try it
-- App: `https://<your-app>.onrender.com` — login `demo@tailor.app` / `volopay2026`
+- App: `https://<your-app>.onrender.com` — login `youruser@gmail.com` / `Admin@123`
 - MCP URL: shown in **Settings** inside the app (`https://<your-app>.onrender.com/mcp/<key>`)
 
 ## Connect to Claude (1 minute)

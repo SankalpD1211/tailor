@@ -79,11 +79,11 @@ function renderLogin() {
     <form id="lf">
       <h2>Sign in</h2>
       <div class="stack">
-        <div><label class="f">Email</label><input class="in" name="email" value="demo@tailor.app" autocomplete="username"></div>
-        <div><label class="f">Password</label><input class="in" name="password" type="password" placeholder="volopay2026" autocomplete="current-password"></div>
+        <div><label class="f">Email</label><input class="in" name="email" value="youruser@gmail.com" autocomplete="username"></div>
+        <div><label class="f">Password</label><input class="in" name="password" type="password" placeholder="Admin@123" autocomplete="current-password"></div>
         <button class="btn primary" style="width:100%;justify-content:center">Sign in</button>
         <div class="err" id="lerr"></div>
-        <p class="muted" style="font-size:12.5px">Demo account: demo@tailor.app / volopay2026</p>
+        <p class="muted" style="font-size:12.5px">Demo account: youruser@gmail.com / Admin@123</p>
       </div>
     </form>
   </div>`;
@@ -226,7 +226,7 @@ async function renderNewJob(page) {
       <div id="mtext"><label class="f">Job description</label><textarea class="in" name="jd_text" rows="12" placeholder="Paste the full job description — responsibilities, requirements, nice-to-haves…"></textarea><div class="muted" id="wc" style="font-size:12px;margin-top:4px">0 words</div></div>
       <div id="mlink" style="display:none"><label class="f">Link to the job post</label><input class="in" name="url" placeholder="https://company.com/careers/product-manager"><div class="muted" style="font-size:12px;margin-top:6px">Tailor opens the page and pulls out the text. Pages behind a login (e.g. most LinkedIn links) can't be read — paste the text instead.</div></div>
       <div class="err" id="jerr"></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end"><a class="btn ghost" href="#/jobs">Cancel</a><button class="btn primary" id="jsub">Save JD</button></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><a class="btn ghost" href="#/jobs">Cancel</a><button class="btn primary" id="jsub">Create Resume</button></div>
     </form>`;
   $$('.tabs button', page).forEach(b => b.onclick = () => { mode = b.dataset.m; $$('.tabs button', page).forEach(x => x.classList.toggle('on', x === b)); $('#mtext').style.display = mode === 'text' ? '' : 'none'; $('#mlink').style.display = mode === 'link' ? '' : 'none'; });
   $('[name=jd_text]').oninput = e => { $('#wc').textContent = e.target.value.trim().split(/\s+/).filter(Boolean).length + ' words'; };
@@ -235,9 +235,10 @@ async function renderNewJob(page) {
     const f = new FormData(e.target);
     const body = { title: f.get('title'), company: f.get('company') };
     if (mode === 'text') body.jd_text = f.get('jd_text'); else body.url = f.get('url');
+    try { const st = await api('/settings'); settingsCache = st; if (!st.last_claude_call) { toast('Please connect Claude to create resume'); return; } } catch {}
     $('#jsub').disabled = true; $('#jsub').textContent = mode === 'link' ? 'Reading link…' : 'Saving…'; $('#jerr').textContent = '';
     try { const j = await api('/jobs', { method: 'POST', body }); location.hash = '#/job/' + j.id; }
-    catch (err) { $('#jerr').textContent = err.message; $('#jsub').disabled = false; $('#jsub').textContent = 'Save JD'; }
+    catch (err) { $('#jerr').textContent = err.message; $('#jsub').disabled = false; $('#jsub').textContent = 'Create Resume'; }
   };
 }
 
@@ -466,7 +467,7 @@ async function renderSettings(page) {
       <div><label class="f">One-page rule (enforced on every Claude save)</label><div class="muted" style="font-size:12.5px;line-height:1.6">≤ ${s.limits.maxWords} words · ≤ ${s.limits.maxRoles} roles · ≤ ${s.limits.maxBulletsPerRole} bullets/role · ≤ ${s.limits.maxBulletWords} words/bullet</div></div></div>
     </div>
 
-    <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center"><div><b>Account</b><div class="muted" style="font-size:12.5px">demo@tailor.app</div></div><button class="btn danger" id="logout">Sign out</button></div>`;
+    <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center"><div><b>Account</b><div class="muted" style="font-size:12.5px">youruser@gmail.com</div></div><button class="btn danger" id="logout">Sign out</button></div>`;
   $('#cpm').onclick = () => copy(s.mcp_url, 'MCP URL copied');
   $('#psize').onchange = async e => { await api('/settings', { method: 'PUT', body: { page: e.target.value } }); settingsCache = null; toast('Saved'); };
   $('#logout').onclick = async () => { await api('/logout', { method: 'POST' }); location.hash = '#/login'; };

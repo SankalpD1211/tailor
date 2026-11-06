@@ -11,10 +11,12 @@ import { seedIfEmpty } from './seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
-const DEMO_EMAIL = process.env.DEMO_EMAIL || 'demo@tailor.app';
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'volopay2026';
+const DEMO_EMAIL = process.env.DEMO_EMAIL || 'youruser@gmail.com';
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD || 'Admin@123';
 const MCP_KEY = process.env.MCP_KEY || 'demo-key-change-me';
 const SECRET = process.env.SESSION_SECRET || 'tailor-dev-secret';
+// URL-safe path token derived from MCP_KEY (raw keys can contain / + = which break the URL)
+const MCP_PATH = crypto.createHash('sha256').update(MCP_KEY).digest('hex').slice(0, 32);
 
 const app = express();
 app.set('trust proxy', true);
@@ -25,9 +27,13 @@ const baseUrl = req => process.env.APP_URL || `${req.protocol}://${req.get('host
 const sign = v => crypto.createHmac('sha256', SECRET).update(v).digest('hex');
 const token = () => `${DEMO_EMAIL}.${sign(DEMO_EMAIL)}`;
 
+// ---------- No OAuth: answer 404 so Claude connects without sign-in ----------
+app.all(/^\/\.well-known\//, (req, res) => res.status(404).json({ error: 'not_found' }));
+
 // ---------- MCP endpoint (stateless Streamable HTTP) ----------
 app.post('/mcp/:key', async (req, res) => {
-  if (req.params.key !== MCP_KEY) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Invalid MCP key' }, id: null });
+  if (req.params.key !== MCP_PATH) return res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Invalid MCP key' }, id: null });
+  core.touchClaude(req.body?.method || 'connect').catch(() => {});
   try {
     const server = buildMcpServer(baseUrl(req));
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
@@ -101,7 +107,7 @@ app.post('/api/jobs/:id/edits', auth, h(req => {
 }));
 
 // ---------- Settings ----------
-app.get('/api/settings', auth, h(async req => ({ ...(await core.getSettings()), mcp_url: `${baseUrl(req)}/mcp/${MCP_KEY}`, limits: core.LIMITS })));
+app.get('/api/settings', auth, h(async req => ({ ...(await core.getSettings()), mcp_url: `${baseUrl(req)}/mcp/${MCP_PATH}`, limits: core.LIMITS })));
 app.put('/api/settings', auth, h(req => core.saveSettings({ page: req.body?.page === 'Letter' ? 'Letter' : 'A4' })));
 
 app.get('/healthz', (req, res) => res.send('ok'));
