@@ -8,6 +8,7 @@ import * as db from './db.js';
 import * as core from './core.js';
 import { buildMcpServer } from './mcp.js';
 import { seedIfEmpty } from './seed.js';
+import * as ai from './ai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -72,7 +73,16 @@ app.post('/api/jobs', auth, h(async req => {
   if (!title?.trim()) throw new Error('Job title is required');
   if (!url?.trim() && !jd_text?.trim()) throw new Error('Paste the JD text or a link');
   if (jd_text && jd_text.trim().length < 200) throw new Error("This looks too short to be a full job description. Paste the whole JD.");
-  return core.createJob({ title, company, url, jd_text });
+  const job = await core.createJob({ title, company, url, jd_text }, { auto: ai.aiEnabled() });
+  if (job.status === core.STATUS.WAITING && ai.aiEnabled()) { ai.generate(job.id); return { ...job, status: core.STATUS.GENERATING }; }
+  return job;
+}));
+app.post('/api/jobs/:id/generate', auth, h(async req => {
+  if (!ai.aiEnabled()) throw new Error('In-app resume writing is not set up (ANTHROPIC_API_KEY missing)');
+  const j = await core.getJob(req.params.id);
+  if (!j) throw new Error('Job not found');
+  ai.generate(j.id);
+  return core.updateJob(j.id, { status: core.STATUS.GENERATING, ai_error: null });
 }));
 app.get('/api/jobs/:id', auth, h(async req => {
   const j = await core.getJob(req.params.id);
@@ -90,24 +100,30 @@ app.patch('/api/jobs/:id', auth, h(async req => {
     const j = await core.getJob(req.params.id);
     if (j && [core.STATUS.LINK_FAILED, core.STATUS.CLARIFY].includes(j.status)) patch.status = j.resume ? core.STATUS.READY : core.STATUS.WAITING;
   }
-  return core.updateJob(req.params.id, patch);
+  const out = await core.updateJob(req.params.id, patch);
+  if (jd_text !== undefined && out.status === core.STATUS.WAITING) ai.generate(out.id);
+  return out;
 }));
 app.delete('/api/jobs/:id', auth, h(async req => { await core.deleteJob(req.params.id); return { ok: true }; }));
 app.post('/api/jobs/:id/retry-link', auth, h(async req => {
   const j = await core.getJob(req.params.id);
   const r = await core.fetchJdFromUrl(j.url);
   if (!r.ok) return core.updateJob(j.id, { link_error: r.error, status: core.STATUS.LINK_FAILED });
-  return core.updateJob(j.id, { jd_text: r.text, jd_source: 'link', link_error: null, status: j.resume ? core.STATUS.READY : core.STATUS.WAITING });
+  const out = await core.updateJob(j.id, { jd_text: r.text, jd_source: 'link', link_error: null, status: j.resume ? core.STATUS.READY : core.STATUS.WAITING });
+  if (out.status === core.STATUS.WAITING) ai.generate(out.id);
+  return out;
 }));
 app.put('/api/jobs/:id/resume', auth, h(req => core.saveResumeManual(req.params.id, req.body)));
-app.post('/api/jobs/:id/edits', auth, h(req => {
+app.post('/api/jobs/:id/edits', auth, h(async req => {
   const t = (req.body?.text || '').trim();
   if (!t) throw new Error('Type what you want changed');
-  return core.addEditRequest(req.params.id, t);
+  const out = await core.addEditRequest(req.params.id, t);
+  if (out.resume) ai.generate(out.id);
+  return out;
 }));
 
 // ---------- Settings ----------
-app.get('/api/settings', auth, h(async req => ({ ...(await core.getSettings()), mcp_url: `${baseUrl(req)}/mcp/${MCP_PATH}`, limits: core.LIMITS })));
+app.get('/api/settings', auth, h(async req => ({ ...(await core.getSettings()), mcp_url: `${baseUrl(req)}/mcp/${MCP_PATH}`, ai_enabled: ai.aiEnabled(), limits: core.LIMITS })));
 app.put('/api/settings', auth, h(req => core.saveSettings({ page: req.body?.page === 'Letter' ? 'Letter' : 'A4' })));
 
 app.get('/healthz', (req, res) => res.send('ok'));

@@ -53,6 +53,7 @@ export const STATUS = {
   EDITS: 'Edits pending',
   LINK_FAILED: 'Link failed',
   CLARIFY: 'Needs clarification',
+  GENERATING: 'Writing resume…',
 };
 
 export async function listJobs() {
@@ -71,7 +72,7 @@ export async function nextJobNumber() {
   return meta.job;
 }
 
-export async function createJob({ title, company, url, jd_text }) {
+export async function createJob({ title, company, url, jd_text }, { auto = false } = {}) {
   const n = await nextJobNumber();
   const job = {
     id: String(n), number: n,
@@ -91,7 +92,7 @@ export async function createJob({ title, company, url, jd_text }) {
     else { job.status = STATUS.LINK_FAILED; job.link_error = r.error; }
   }
   if (job.status === STATUS.JD_SAVED) {
-    job.thread.push(sysMsg(`JD saved (${job.jd_text.split(/\s+/).length} words). Ask Claude: "Tailor my resume for job #${n}".`));
+    job.thread.push(sysMsg(auto ? `JD saved (${job.jd_text.split(/\s+/).length} words). Claude is writing your resume…` : `JD saved (${job.jd_text.split(/\s+/).length} words). Ask Claude: "Tailor my resume for job #${n}".`));
     job.status = STATUS.WAITING;
   }
   await db.put('jobs', job.id, job);

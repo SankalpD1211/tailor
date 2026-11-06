@@ -194,7 +194,7 @@ async function renderProfile(page) {
 
 // ---------------- Jobs ----------------
 const statusPill = s => {
-  const cls = { 'Resume ready': 'ok', 'Waiting for Claude': 'claude', 'Edits pending': 'warn', 'Link failed': 'bad', 'Needs clarification': 'bad' }[s] || '';
+  const cls = { 'Resume ready': 'ok', 'Waiting for Claude': 'claude', 'Edits pending': 'warn', 'Link failed': 'bad', 'Needs clarification': 'bad', 'Writing resume…': 'claude' }[s] || '';
   return `<span class="pill ${cls}">${esc(s)}</span>`;
 };
 
@@ -235,7 +235,7 @@ async function renderNewJob(page) {
     const f = new FormData(e.target);
     const body = { title: f.get('title'), company: f.get('company') };
     if (mode === 'text') body.jd_text = f.get('jd_text'); else body.url = f.get('url');
-    try { const st = await api('/settings'); settingsCache = st; if (!st.last_claude_call) { toast('Please connect Claude to create resume'); return; } } catch {}
+    try { const st = await api('/settings'); settingsCache = st; if (!st.ai_enabled && !st.last_claude_call) { toast('Please connect Claude to create resume'); return; } } catch {}
     $('#jsub').disabled = true; $('#jsub').textContent = mode === 'link' ? 'Reading link…' : 'Saving…'; $('#jerr').textContent = '';
     try { const j = await api('/jobs', { method: 'POST', body }); location.hash = '#/job/' + j.id; }
     catch (err) { $('#jerr').textContent = err.message; $('#jsub').disabled = false; $('#jsub').textContent = 'Create Resume'; }
@@ -357,6 +357,21 @@ async function renderWorkspace(id) {
       $('#bedit').disabled = false; $('#bpdf').disabled = false;
     } else {
       const failed = job.status === 'Link failed', clarify = job.status === 'Needs clarification';
+      const aiOn = settingsCache.ai_enabled;
+      if (aiOn && !failed && !clarify) {
+        const writing = job.status === 'Writing resume…';
+        st.innerHTML = `<div class="placeholder"><div class="inner">
+          ${writing ? '<div class="spinner"></div>' : '<div style="font-size:34px">✦</div>'}
+          <h3>${writing ? 'Claude is writing your resume…' : 'Ready to create your resume'}</h3>
+          <p>${writing ? 'Reading your profile and the JD, then fitting the best of it on one page. Usually 20–40 seconds.' : (job.ai_error ? 'Last try failed: ' + esc(job.ai_error) : 'Claude will read your profile and this JD and write a one-page resume.')}</p>
+          ${writing ? '' : '<div style="margin-top:14px"><button class="btn claude" id="gen">✦ Create Resume</button></div>'}
+        </div></div>`;
+        $('#gen') && ($('#gen').onclick = async () => { try { job = await api(`/jobs/${job.id}/generate`, { method: 'POST' }); drawAll(); } catch (e) { toast(e.message); } });
+        $('#bedit').disabled = true; $('#bpdf').disabled = true;
+        requestAnimationFrame(() => { fitScale(); fitBadge(); });
+        $('#spill').innerHTML = statusPill(job.status);
+        return;
+      }
       st.innerHTML = `<div class="placeholder"><div class="inner">
         ${failed || clarify ? '<div style="font-size:34px">⚠</div>' : '<div class="spinner"></div>'}
         <h3>${failed ? "We couldn't read that link" : clarify ? 'Claude needs a clearer JD' : 'Waiting for your Claude'}</h3>
@@ -393,7 +408,7 @@ async function renderWorkspace(id) {
       </div>`).join('') || '<div class="msg system"><div class="body">No messages yet.</div></div>';
     th.scrollTop = th.scrollHeight;
     const pending = job.thread.filter(m => m.kind === 'edit_request' && m.status === 'pending').length;
-    $('#handoff').innerHTML = pending ? `
+    $('#handoff').innerHTML = settingsCache.ai_enabled ? (job.status === 'Writing resume…' && job.resume ? '<div class="handoff"><b>Claude is applying your edit…</b> This page updates by itself.</div>' : '') : pending ? `
       <div class="handoff"><b>${pending} edit${pending > 1 ? 's' : ''} waiting for Claude.</b> Tell your Claude to apply them — this page updates by itself.
         <div class="copyrow"><input class="in" readonly value="${esc(editPrompt)}"><button class="btn sm" id="cp2">Copy</button><a class="btn sm claude" target="_blank" href="${claudeUrl(editPrompt)}">✦ Open</a></div></div>` : '';
     $('#cp2') && ($('#cp2').onclick = () => copy(editPrompt, 'Prompt copied — paste it in Claude'));
@@ -415,7 +430,7 @@ async function renderWorkspace(id) {
   };
   $('#send').onclick = async () => {
     const t = $('#ask').value.trim(); if (!t) return;
-    try { job = await api(`/jobs/${job.id}/edits`, { method: 'POST', body: { text: t } }); $('#ask').value = ''; drawAll(); toast('Saved — now tell Claude to apply it'); } catch (e) { toast(e.message); }
+    try { job = await api(`/jobs/${job.id}/edits`, { method: 'POST', body: { text: t } }); $('#ask').value = ''; drawAll(); toast(settingsCache.ai_enabled ? 'Sent — Claude is updating your resume' : 'Saved — now tell Claude to apply it'); } catch (e) { toast(e.message); }
   };
   $('#ask').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('#send').click(); });
   window.onresize = () => fitScale();
@@ -424,7 +439,7 @@ async function renderWorkspace(id) {
   // Live updates: when Claude saves through MCP, the page refreshes itself.
   pollTimer = setInterval(async () => {
     if (editing || document.hidden) return;
-    try { const j = await api('/jobs/' + job.id); if (sig(j) !== lastSig) { const hadResume = !!job.resume; job = j; drawAll(); toast(hadResume ? 'Claude updated your resume' : 'Claude delivered your resume ✦'); } } catch { }
+    try { const j = await api('/jobs/' + job.id); if (sig(j) !== lastSig) { const hadResume = !!job.resume, changed = j.resume_updated_at !== job.resume_updated_at && j.resume; job = j; drawAll(); if (changed) toast(hadResume ? 'Claude updated your resume' : 'Claude delivered your resume ✦'); } } catch { }
   }, 3000);
 }
 
@@ -434,7 +449,7 @@ async function renderSettings(page) {
   const s = settingsCache = await api('/settings');
   const on = s.last_claude_call;
   page.innerHTML = `
-    <div class="page-head"><div><h1>Settings</h1><p>Connect your own Claude. Tailor has no AI inside — your Claude plan does the thinking.</p></div></div>
+    <div class="page-head"><div><h1>Settings</h1><p>${s.ai_enabled ? 'Resumes are written in-app by Claude. You can also connect your own Claude below.' : 'Connect your own Claude. Tailor has no AI inside — your Claude plan does the thinking.'}</p></div></div>
     <div class="card stack">
       <h3 style="font-size:16px">Claude connection</h3>
       <div class="banner ${on ? 'ok' : 'warn'}"><span class="dot ${on ? 'on' : ''}" style="margin-top:7px"></span><div>${on ? `<b>Connected.</b> Last call ${ago(s.last_claude_call)} (<code class="k">${esc(s.last_tool)}</code>).` : '<b>Not connected yet.</b> Follow the steps below — takes about a minute.'}</div></div>
